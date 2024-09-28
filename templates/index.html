@@ -1,0 +1,25 @@
+<html>
+    <head>
+        <title>{{ .title }}</title>
+        <link rel="stylesheet" type="text/css" href="/assets/style.css" />
+    </head>
+    <body>
+        <h1 class="header m-2">{{ .title }}</h1>
+        <sub class="m-2">by <a href="https://github.com/zrecore" target="_blank">@zrecore</a></sub>
+        <div class="card m-2">
+            This is an 3D viewer built in GO. Loads STL files.
+            <form class="flex flex-cols" onsubmit="(ev) => { ev.preventDefault() }">
+                <label for="query">Search</label>
+                <input id="query" name="query" class="my-2 mx-1" type="text" />
+                <button class="my-2 mx-1" type="submit">Go</button>
+            </form>
+            <h2>Models:</h2>
+            <div>
+                {{ range .entries}}
+                <div class="font-monospace">{{ .Name }}</div>
+                {{ end }}
+            </div>
+        </div>
+
+    </body>
+</html>

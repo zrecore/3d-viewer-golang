@@ -1,0 +1,123 @@
+:root {
+    --control-border-color: #0088aa;
+    --control-bg-color:     #ffffff;
+    --control-text-color:   #0088aa;
+
+    --control-disabled-border-color: #ccddff;
+    --control-disabled-bg-color: #f0f0f0;
+    --control-disabled-text-color: #ccddff;
+
+    --input-border-color: #0088aa;
+    --input-bg-color: #ffffff;
+    --input-text-color: #0088aa;
+
+    --input-disabled-border-color: #ccddff;
+    --input-disabled-bg-color: #f0f0f0;
+    --input-disabled-text-color: #ccddff;
+
+    --input-error-border-color: #aa0088;
+    --input-error-bg-color: #ffccff;
+    --input-error-text-color: #aa0088;
+}
+*, html, body {
+    font-family: sans-serif;
+    font-size: 1rem;
+    background-color: var(--control-bg-color);
+    color: var(--control-text-color);
+}
+
+button {
+    border: solid 0.1rem var(--control-border-color);
+
+    background-color: var(--control-bg-color);
+    color: var(--control-text-color);
+    margin: 0;
+    padding: 0.25rem 0.25rem;
+
+    border-radius: 0.5rem;
+}
+
+button.disabled {
+    border-color: var(--control-disabled-border-color);
+    background-color: var(--control-disabled-bg-color);
+    color: var(--control-disabled-text-color);
+}
+
+input, textarea {
+    border: solid 0.1rem var(--input-border-color);
+
+    background-color: var(--input-bg-color);
+    color: var(--input-text-color);
+    padding: 0.25rem 0.25rem;
+    margin: 0;
+    border-radius: 0.5rem;
+}
+
+input.error, textarea.error {
+    border-color: var(--input-error-border-color);
+    background-color: var(--input-error-bg-color);
+    color: var(--input-error-text-color);
+}
+
+input.disabled, textarea.disabled {
+    border-color: var(--input-disabled-border-color);
+    background-color: var(--input-disabled-bg-color);
+    color: var(--input-disabled-text-color);
+}
+
+.font-monospace {
+    font-family: monospace;
+}
+
+.flex {
+    display: flex;
+}
+
+.flex-cols {
+    flex-direction: cols;
+}
+
+.flex-rows {
+    flex-direction: rows;
+}
+
+.card {
+    border: solid 2px var(--control-border-color);
+    background-color: var(--control-bg-color);
+    color: var(--control-text-color);
+
+    padding: 1rem 1rem;
+
+    border-radius: 0.5rem;
+
+    box-shadow: 0.25rem 0.25rem 0.5rem;
+}
+
+.header {
+    font-weight: bolder;
+    padding-y: 1rem;
+}
+
+.p-0 { padding: 0; }
+.px-0 { padding-left: 0; padding-right: 0; }
+.py-0 { padding-top: 0; padding-bottom: 0; }
+
+.p-1 { padding: 1rem; }
+.px-1 { padding-left: 1rem; padding-right: 1rem; }
+.py-1 { padding-top: 1rem; padding-bottom: 1rem; }
+
+.p-2 { padding: 2rem; }
+.px-2 { padding-left: 2rem; padding-right: 2rem; }
+.py-2 { padding-top: 2rem; padding-bottom: 2rem; }
+
+.m-0 { margin: 0; }
+.mx-0 { margin-left: 0; margin-right: 0;}
+.my-0 { margin-top: 0; margin-bottom: 0;}
+
+.m-1 { margin: 1rem; }
+.mx-1 { margin-left: 1rem; margin-right: 1rem; }
+.my-1 { margin-top: 1rem; margin-bottom: 1rem; }
+
+.m-2 { margin: 2rem; }
+.mx-2 { margin-left: 2rem; margin-right: 2rem; }
+.my-2 { margin-top: 2rem; margin-bottom: 2rem; }
