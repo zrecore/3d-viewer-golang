@@ -1,0 +1,3 @@
+[submodule "assets/fmto"]
+	path = assets/fmto
+	url = git@github.com:zrecore/fmto.git

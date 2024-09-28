@@ -2,6 +2,16 @@
 
 A 3D Viewer written in Go programming language. Loads and previews STL files from an directory.
 
+# Clone this repository
+
+Note, this repository uses git submodules. To clone with submodules, run the following command.
+
+
+```bash
+# With Git 2.13 or later
+git clone --recursive-submodules git@github.com:zrecore/fmto.git
+```
+
 # Requirements
 
 Requires Docker Compose.
