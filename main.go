@@ -1,42 +1,81 @@
 package main
 
-import (
-	"io/fs"
-	"main/viewer"
-	"net/http"
+/**
+ * @author Alex Albino <dev@alexventure.com>
+ * @link https://github.com/zrecore/3d-viewer-golang
+ * @license MIT. See LICENSE file.
+ */
 
-	"github.com/gin-gonic/gin"
+import (
+	"context"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/zrecore/3d-viewer-golang/auth"
+	"github.com/zrecore/3d-viewer-golang/server"
 )
 
-type ENTRIES struct {
+func main() {
+	if err := run(); err != nil {
+		log.Fatalf("fatal: %v", err)
+	}
 }
 
-func main() {
-	router := gin.Default()
-	router.LoadHTMLGlob("templates/*")
-	router.Static("/assets", "./assets")
+func run() error {
+	cfg, err := server.LoadConfig(os.Getenv)
+	if err != nil {
+		return err
+	}
+	a, err := auth.New(cfg.Auth)
+	if err != nil {
+		return err
+	}
+	if a.Enabled() {
+		log.Printf("OIDC login enabled (issuer %s)", cfg.Auth.Issuer)
+	} else {
+		log.Printf("OIDC_ISSUER is not set: uploads are disabled")
+	}
+	if err := os.MkdirAll(cfg.ModelsDir(), 0o755); err != nil {
+		log.Printf("warning: cannot create models directory %s: %v", cfg.ModelsDir(), err)
+	}
 
-	router.GET("/", func(c *gin.Context) {
-		var entries []fs.DirEntry = viewer.Load()
-		c.HTML(http.StatusOK, "index.html", gin.H{
-			"title":   "3D Viewer",
-			"entries": entries,
-		})
-	})
+	router, err := server.New(cfg, a)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
+	}
 
-	router.GET("/sign-in", func(c *gin.Context) {
-		c.HTML(http.StatusOK, "sign-in.html", gin.H{
-			"title": "3D Viewer",
-		})
-	})
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	router.POST("/sign-in", viewer.SignIn)
+	errCh := make(chan error, 1)
+	go func() {
+		log.Printf("listening on %s", cfg.Addr)
+		errCh <- srv.ListenAndServe()
+	}()
 
-	router.GET("/api/load-entries", func(c *gin.Context) {
-		var entries []fs.DirEntry = viewer.Load()
-
-		c.JSON(http.StatusOK, entries)
-	})
-
-	router.Run(":8080")
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		stop()
+		log.Printf("shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	}
 }

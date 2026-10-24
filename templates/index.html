@@ -1,25 +1,74 @@
+<!--
+/**
+ * @author Alex Albino <dev@alexventure.com>
+ * @link https://github.com/zrecore/3d-viewer-golang
+ * @license MIT. See LICENSE file.
+ */
+-->
 <html>
     <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{{ .title }}</title>
         <link rel="stylesheet" type="text/css" href="/assets/style.css" />
+        <link rel="icon" type="image/x-icon" href="/assets/fmto/favicon.png" />
     </head>
-    <body>
-        <h1 class="header m-2">{{ .title }}</h1>
-        <sub class="m-2">by <a href="https://github.com/zrecore" target="_blank">@zrecore</a></sub>
-        <div class="card m-2">
-            This is an 3D viewer built in GO. Loads STL files.
-            <form class="flex flex-cols" onsubmit="(ev) => { ev.preventDefault() }">
-                <label for="query">Search</label>
-                <input id="query" name="query" class="my-2 mx-1" type="text" />
-                <button class="my-2 mx-1" type="submit">Go</button>
-            </form>
-            <h2>Models:</h2>
-            <div>
-                {{ range .entries}}
-                <div class="font-monospace">{{ .Name }}</div>
-                {{ end }}
-            </div>
-        </div>
+    <body class="flex flex-cols justify-center p-4 h-full">
+        
+        <div class="card m-2 w-640px h-auto">
+            <h1 class="header my-4">{{ .title }}</h1>
+            <sub class="sub-header my-4">by <a href="https://github.com/zrecore" target="_blank">@zrecore</a></sub>
+            <p class="my-4">This is an 3D viewer built in GO. Loads STL files.</p>
+            <p class="my-4">Renders via WebGPU. Drag to orbit, scroll to zoom, shift-drag or right-drag to pan.</p>
 
+            <div id="authBar" class="flex align-center my-4" data-authenticated="{{ if .user }}true{{ else }}false{{ end }}">
+                <span id="authUser" class="mx-2{{ if not .user }} hidden{{ end }}">{{ if .user }}Signed in as {{ .user.Name }}{{ end }}</span>
+                <a id="linkSignIn" class="mx-2{{ if .user }} hidden{{ end }}" href="/auth/login">Sign in to upload</a>
+                <button id="btnSignOut" type="button" class="mx-2{{ if not .user }} hidden{{ end }}">Sign out</button>
+            </div>
+            <form id="frmUpload" class="flex flex-cols align-center my-4" enctype="multipart/form-data">
+                <label for="uploadFile">Upload</label>
+                <input id="uploadFile" name="file" class="mx-2" type="file" accept=".stl" disabled />
+                <button id="btnUpload" class="mx-2 disabled" type="submit" disabled>Upload</button>
+            </form>
+            <div id="uploadMessage" class="notice hidden" role="status"></div>
+
+            <form id="frmSearch" class="flex flex-cols justify-center align-center w-full">
+                <label for="query">Search</label>
+                <input id="query" name="query" class="my-4 mx-2" type="text" autocomplete="off" />
+                <button class="my-4 mx-2" type="submit">Go</button>
+            </form>
+            <h2 class="flex flex-cols">Models</h2>
+            <div id="modelList" class="card card-colorize m-4 model-list">
+                {{ range .entries}}
+                <div class="card-colorize font-monospace p-2 file-entry" data-name="{{.Name}}" title="{{.Size}} B" tabindex="0" role="button">{{ .Name }}</div>
+                {{ end }}
+                <div id="noMatches" class="p-2 hidden">No models match your search.</div>
+            </div>
+            
+            <div class="m-4">
+                <div class="viewer-wrap">
+                    <canvas id="viewerCanvas" class="my-4 w-full h-auto aspect-16-9"></canvas>
+                    <div id="viewerMessage" class="viewer-message hidden" role="alert"></div>
+                </div>
+                <div class="flex align-center">
+                    <button id="btnResetView" type="button" class="my-2">Reset view</button>
+                    <span id="viewerInfo" class="mx-2 viewer-info"></span>
+                </div>
+                <div class="relative w-full">
+                    <div id="progressBar" class="p-4 flex flex-rows align-center w-full absolute hidden float-right" style="font-size: 0.8rem; height: 1rem; background-repeat: none; background-color: #ffffff;">0%</div>
+                </div>
+            </div>
+
+        </div>
+        <script type="module">
+            import { initApp } from "/assets/app.mjs"
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => initApp())
+            } else {
+                initApp()
+            }
+        </script>
     </body>
 </html>

@@ -1,9 +1,22 @@
 services:
   server:
-    image: golang:1.23.1
+    image: golang:1.23
     working_dir: /usr/src/app/
     volumes:
       - ./:/usr/src/app/
     ports:
       - "8080:8080"
-    command: ["go", "run", "main.go"]
+    env_file:
+      - path: .env
+        required: false
+    command: ["go", "run", "."]
+
+  # Production-style image: `docker compose --profile prod up --build viewer`
+  viewer:
+    profiles: ["prod"]
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false

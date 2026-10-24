@@ -1,7 +1,19 @@
+/**
+ * @author Alex Albino <dev@alexventure.com>
+ * @link https://github.com/zrecore/3d-viewer-golang
+ * @license MIT. See LICENSE file.
+ */
 :root {
+    --container-border-color: #0088aa;
+    --container-bg-color:     #ffffff;
+    --container-text-color:   #0088aa;
+    --container-shadow-color: #002244;
+    
+    --control-highlight-color: #00ffff;
+
     --control-border-color: #0088aa;
-    --control-bg-color:     #ffffff;
-    --control-text-color:   #0088aa;
+    --control-bg-color:     #0088aa;
+    --control-text-color:   #ffffff;
 
     --control-disabled-border-color: #ccddff;
     --control-disabled-bg-color: #f0f0f0;
@@ -22,8 +34,14 @@
 *, html, body {
     font-family: sans-serif;
     font-size: 1rem;
+    background-color: var(--container-bg-color);
+    color: var(--container-text-color);
+    margin: 0;
+    padding: 0;
+}
+
+body {
     background-color: var(--control-bg-color);
-    color: var(--control-text-color);
 }
 
 button {
@@ -65,6 +83,10 @@ input.disabled, textarea.disabled {
     color: var(--input-disabled-text-color);
 }
 
+canvas {
+    border: solid 0.1rem var(--control-border-color)
+}
+
 .font-monospace {
     font-family: monospace;
 }
@@ -81,43 +103,160 @@ input.disabled, textarea.disabled {
     flex-direction: rows;
 }
 
+.justify-center {
+    justify-content: center;
+    justify-items: center;
+}
+.align-center {
+    align-content: center;
+    align-items: center;
+}
+
 .card {
-    border: solid 2px var(--control-border-color);
-    background-color: var(--control-bg-color);
-    color: var(--control-text-color);
+    border: solid 2px var(--container-border-color);
+    background-color: var(--container-bg-color);
+    color: var(--container-text-color);
 
     padding: 1rem 1rem;
 
     border-radius: 0.5rem;
 
-    box-shadow: 0.25rem 0.25rem 0.5rem;
+    box-shadow: 0.25rem 0.25rem 0.5rem var(--container-shadow-color);
+}
+
+.card-colorize 
+{
+    border-color: var(--container-border-color);
+    background-color: var(--control-bg-color);
+    color: var(--control-text-color);
 }
 
 .header {
+    font-size: larger;
     font-weight: bolder;
     padding-y: 1rem;
 }
+.sub-header {
+    font-size: smaller;
+    padding-y: 0.25rem;
+}
+
+.w-full { width: 100%; }
+.w-auto { width: auto; }
+.w-50 { width: 50%; }
+.w-1024px { width: 1024px; }
+.w-640px { width: 640px; }
+.w-480px { width: 480px; }
+
+.h-auto { height: auto; }
+.h-full { height: 100%; }
+.h-50   { height: 50%; }
+
+.aspect-auto { aspect-ratio: auto; }
+.aspect-4-3 { aspect-ratio: 4 / 3; }
+.aspect-16-9 { aspect-ratio: 16 / 9; }
 
 .p-0 { padding: 0; }
 .px-0 { padding-left: 0; padding-right: 0; }
 .py-0 { padding-top: 0; padding-bottom: 0; }
 
-.p-1 { padding: 1rem; }
-.px-1 { padding-left: 1rem; padding-right: 1rem; }
-.py-1 { padding-top: 1rem; padding-bottom: 1rem; }
+.p-1 { padding: 0.1rem; }
+.px-1 { padding-left: 0.1rem; padding-right: 0.1rem; }
+.py-1 { padding-top: 0.1rem; padding-bottom: 0.1rem; }
 
-.p-2 { padding: 2rem; }
-.px-2 { padding-left: 2rem; padding-right: 2rem; }
-.py-2 { padding-top: 2rem; padding-bottom: 2rem; }
+.p-2 { padding: 0.2rem; }
+.px-2 { padding-left: 0.2rem; padding-right: 0.2rem; }
+.py-2 { padding-top: 0.2rem; padding-bottom: 0.2rem; }
+
+.p-4 { padding: 0.4rem; }
+.px-4 { padding-left: 0.4rem; padding-right: 0.4rem; }
+.py-4 { padding-top: 0.4rem; padding-bottom: 0.4rem; }
 
 .m-0 { margin: 0; }
 .mx-0 { margin-left: 0; margin-right: 0;}
 .my-0 { margin-top: 0; margin-bottom: 0;}
 
-.m-1 { margin: 1rem; }
-.mx-1 { margin-left: 1rem; margin-right: 1rem; }
-.my-1 { margin-top: 1rem; margin-bottom: 1rem; }
+.m-1 { margin: 0.1rem; }
+.mx-1 { margin-left: 0.1rem; margin-right: 0.1rem; }
+.my-1 { margin-top: 0.1rem; margin-bottom: 0.1rem; }
 
-.m-2 { margin: 2rem; }
-.mx-2 { margin-left: 2rem; margin-right: 2rem; }
-.my-2 { margin-top: 2rem; margin-bottom: 2rem; }
+.m-2 { margin: 0.2rem; }
+.mx-2 { margin-left: 0.2rem; margin-right: 0.2rem; }
+.my-2 { margin-top: 0.2rem; margin-bottom: 0.2rem; }
+
+.m-4 { margin: 0.4rem; }
+.mx-4 { margin-left: 0.4rem; margin-right: 0.4rem; }
+.my-4 { margin-top: 0.4rem; margin-bottom: 0.4rem; }
+
+.relative { position: relative; }
+.absolute { position: absolute; }
+.float-left { float: left; }
+.float-right { float: right; }
+
+.hidden { display: none !important; }
+
+/* Disabled controls */
+button:disabled, input:disabled {
+    border-color: var(--control-disabled-border-color);
+    background-color: var(--control-disabled-bg-color);
+    color: var(--control-disabled-text-color);
+    cursor: not-allowed;
+}
+
+button:not(:disabled) { cursor: pointer; }
+
+/* Model list */
+.model-list {
+    max-height: 12rem;
+    overflow-y: auto;
+}
+
+.file-entry { cursor: pointer; }
+.file-entry:hover { background-color: var(--container-border-color); }
+.file-entry.selected {
+    outline: solid 0.15rem var(--control-highlight-color);
+    outline-offset: -0.15rem;
+}
+.file-entry:focus-visible {
+    outline: solid 0.15rem var(--control-highlight-color);
+    outline-offset: -0.15rem;
+}
+
+/* Viewer */
+.viewer-wrap { position: relative; }
+.viewer-wrap canvas { display: block; touch-action: none; cursor: grab; }
+.viewer-wrap canvas:active { cursor: grabbing; }
+
+.viewer-message {
+    position: absolute;
+    left: 1rem;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 0.75rem;
+    text-align: center;
+    border: solid 0.1rem var(--container-border-color);
+    border-radius: 0.5rem;
+    background-color: var(--container-bg-color);
+    color: var(--container-text-color);
+}
+.viewer-message.error {
+    border-color: var(--input-error-border-color);
+    background-color: var(--input-error-bg-color);
+    color: var(--input-error-text-color);
+}
+
+.viewer-info { font-size: smaller; font-family: monospace; }
+
+/* Inline notices (upload status) */
+.notice {
+    margin: 0.4rem 0;
+    padding: 0.4rem;
+    border: solid 0.1rem var(--container-border-color);
+    border-radius: 0.5rem;
+}
+.notice.error {
+    border-color: var(--input-error-border-color);
+    background-color: var(--input-error-bg-color);
+    color: var(--input-error-text-color);
+}
