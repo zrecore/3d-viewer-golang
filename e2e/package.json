@@ -4,9 +4,11 @@
   "type": "module",
   "description": "Browser end-to-end checks for the viewer (headless Chrome, software WebGPU). Not run by CI.",
   "scripts": {
-    "test": "node run-all.mjs"
+    "test": "node run-all.mjs",
+    "install-webkit": "playwright-core install webkit"
   },
   "devDependencies": {
+    "playwright-core": "^1.64.1",
     "puppeteer-core": "^25.16.0"
   }
 }

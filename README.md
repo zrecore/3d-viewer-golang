@@ -71,7 +71,7 @@ The browser upload is separate: it is read in the page, validated and kept in In
 
 ```bash
 make check      # build, vet, Go tests, JS tests (all the unit tests)
-make e2e        # browser end-to-end checks (server running + Chrome; see e2e/README.md)
+make e2e        # browser end-to-end checks in Chrome and, if installed, headless WebKit (server running; see e2e/README.md)
 ```
 
 A production-style image is available with `docker compose --profile prod up --build viewer`.

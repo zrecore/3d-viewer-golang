@@ -26,6 +26,9 @@ export const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)
 export const phone = (width, height, deviceScaleFactor = 2) =>
     ({ userAgent: IPHONE_UA, viewport: { width, height, deviceScaleFactor, isMobile: true, hasTouch: true } })
 
+/** Chrome flags that give the viewer WebGPU in headless mode (software rendering). */
+const WEBGPU_ARGS = ['--enable-unsafe-webgpu', '--enable-unsafe-swiftshader', '--use-webgpu-adapter=swiftshader', '--use-angle=swiftshader']
+
 function chromePath() {
     const candidates = [
         process.env.CHROME_PATH,
@@ -61,8 +64,33 @@ export async function launch() {
     return puppeteer.launch({
         executablePath: chromePath(),
         headless: 'new',
-        args: ['--enable-unsafe-webgpu', '--enable-unsafe-swiftshader', '--use-webgpu-adapter=swiftshader', '--use-angle=swiftshader'],
+        args: WEBGPU_ARGS,
     })
+}
+
+/**
+ * A Playwright browser for the cross-browser suite: 'chrome' (your installed Chrome, software WebGPU) or
+ * 'webkit' (Playwright's headless WebKit: Safari's engine with WebGPU, but not Safari.app itself).
+ * Exits 3, which run-all.mjs treats as "skipped", when the WebKit build is not installed.
+ * @param {'chrome'|'webkit'} engine
+ * @returns {Promise<{browser: import('playwright-core').Browser, devices: typeof import('playwright-core').devices, label: string}>}
+ */
+export async function launchEngine(engine) {
+    if (engine !== 'chrome' && engine !== 'webkit') {
+        console.error(`Unknown engine "${engine}". Use "chrome" or "webkit".`)
+        process.exit(2)
+    }
+    await requireServer()
+    const { chromium, webkit, devices } = await import('playwright-core')
+    if (engine === 'chrome') {
+        const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: WEBGPU_ARGS })
+        return { browser, devices, label: 'Chrome' }
+    }
+    if (!existsSync(webkit.executablePath())) {
+        console.log('SKIP  Playwright WebKit is not installed. Run `npm run install-webkit` in e2e/ to enable the WebKit checks.')
+        process.exit(3)
+    }
+    return { browser: await webkit.launch({ headless: true }), devices, label: 'WebKit' }
 }
 
 /** Close the browser and exit. Closing can hang after touch emulation, so never wait forever. */
