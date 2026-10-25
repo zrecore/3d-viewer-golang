@@ -9,7 +9,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { OrbitCamera, OrbitControls } from './camera.mjs'
-import { TOUCH } from './gestures.mjs'
+import { TOUCH, MOUSE } from './gestures.mjs'
 
 class FakeEl extends EventTarget {
     constructor() {
@@ -652,20 +652,88 @@ test('mouse inertia: a quick flick keeps coasting, decays, and stops on its own'
     assert.deepEqual(snapshot(m.camera), after)
 })
 
-test('mouse inertia: coasts exactly as far as the same flick with a finger', () => {
+test('mouse inertia: glides farther than the same flick with a finger, by the mouse tuning', () => {
     const m = mouseSetup()
     m.flick()
+    const m0 = m.camera.azimuth // after the drag itself: only the coast is measured
     coastToEnd(m)
+    const mouseCoast = m0 - m.camera.azimuth
 
     const t = touchSetup()
     t.down(1, 100, 100, 0)
     for (let i = 1; i <= 4; i++) t.move(1, 100 + i * 24, 100, i * 16)
     t.up(1, 196, 100, 70)
+    const t0 = t.camera.azimuth
     coastToEnd(t)
-    near(m.camera.azimuth, t.camera.azimuth, 1e-9)
+    const touchCoast = t0 - t.camera.azimuth
+
+    const ratio = (MOUSE.GAIN * MOUSE.ORBIT_TAU_MS) / (TOUCH.GAIN * TOUCH.ORBIT_TAU_MS)
+    assert.ok(mouseCoast > touchCoast * 1.5, `mouse ${mouseCoast.toFixed(3)} vs touch ${touchCoast.toFixed(3)} rad`)
+    near(mouseCoast / touchCoast, ratio, 0.05)
+    // and the sideways direction is the same
     near(m.camera.elevation, t.camera.elevation, 1e-9)
 })
 
+test('touch inertia keeps its original distance: release speed x 250ms', () => {
+    const t = touchSetup()
+    t.down(1, 100, 100, 0)
+    for (let i = 1; i <= 4; i++) t.move(1, 100 + i * 24, 100, i * 16) // 1.5 px/ms
+    t.up(1, 196, 100, 70)
+    const a0 = t.camera.azimuth
+    coastToEnd(t)
+    near(a0 - t.camera.azimuth, 1.5 * 250 * 0.005, 0.03)
+})
+
+test('mouse inertia: a modest drag still gives a visible coast', () => {
+    // 0.4 px/ms is a casual mouse swipe; with the touch numbers it coasted only ~100px
+    const m = mouseSetup()
+    m.mdown(100, 100, 0)
+    for (let i = 1; i <= 8; i++) m.mmove(100 + i * 6.4, 100, i * 16) // 0.4 px/ms
+    m.mup(151.2, 100, 130)
+    const a0 = m.camera.azimuth
+    coastToEnd(m, 130)
+    const coasted = (a0 - m.camera.azimuth) / 0.005 // px of drag
+    // a coast ends once its speed falls below MIN_SPEED, so it stops that much short of v * tau
+    near(coasted, (0.4 * MOUSE.GAIN - TOUCH.MIN_SPEED) * MOUSE.ORBIT_TAU_MS, 5)
+    assert.ok(coasted > 150, `coasted only ${coasted.toFixed(0)}px`)
+})
+
+test('mouse inertia: more forgiving than touch about a short delay before releasing the button', () => {
+    const gap = TOUCH.VELOCITY_STALE_MS + 10 // longer than touch allows, within the mouse allowance
+    assert.ok(gap <= MOUSE.VELOCITY_STALE_MS)
+    const m = mouseSetup()
+    m.mdown(100, 100, 0)
+    for (let i = 1; i <= 4; i++) m.mmove(100 + i * 24, 100, i * 16)
+    m.mup(196, 100, 64 + gap)
+    assert.equal(m.controls.touch.inertiaActive, true, 'mouse coasts')
+
+    const t = touchSetup()
+    t.down(1, 100, 100, 0)
+    for (let i = 1; i <= 4; i++) t.move(1, 100 + i * 24, 100, i * 16)
+    t.up(1, 196, 100, 64 + gap)
+    assert.equal(t.controls.touch.inertiaActive, false, 'touch does not (a pause before lifting means no fling)')
+})
+
+test('mouse inertia: starts from slower drags than touch does, but not from near-stationary ones', () => {
+    const slowSpeed = (TOUCH.START_SPEED + MOUSE.START_SPEED) / 2 // between the two thresholds, px/ms
+    const drive = (setup, down, move, up) => {
+        const h = setup()
+        down(h, 0, 0, 0)
+        for (let i = 1; i <= 6; i++) move(h, i * slowSpeed * 16, 0, i * 16)
+        up(h, 6 * slowSpeed * 16, 0, 100)
+        return h
+    }
+    const m = drive(mouseSetup, (h, x, y, t) => h.mdown(x, y, t), (h, x, y, t) => h.mmove(x, y, t), (h, x, y, t) => h.mup(x, y, t))
+    assert.equal(m.controls.touch.inertiaActive, true)
+    const t = drive(touchSetup, (h, x, y, tt) => h.down(1, x, y, tt), (h, x, y, tt) => h.move(1, x, y, tt), (h, x, y, tt) => h.up(1, x, y, tt))
+    assert.equal(t.controls.touch.inertiaActive, false)
+
+    const still = mouseSetup()
+    still.mdown(0, 0, 0)
+    for (let i = 1; i <= 6; i++) still.mmove(i * 0.2, 0, i * 16) // 0.0125 px/ms: a hand barely moving
+    still.mup(1.2, 0, 100)
+    assert.equal(still.controls.touch.inertiaActive, false)
+})
 test('mouse inertia: vertical flicks orbit vertically and stop at the pole', () => {
     const m = mouseSetup()
     m.mdown(100, 100, 0)
@@ -681,7 +749,7 @@ test('mouse inertia: a pause before releasing, a slow drag, or a click does not 
     let m = mouseSetup()
     m.mdown(100, 100, 0)
     for (let i = 1; i <= 4; i++) m.mmove(100 + i * 24, 100, i * 16)
-    m.mup(196, 100, 64 + TOUCH.VELOCITY_STALE_MS + 20)
+    m.mup(196, 100, 64 + MOUSE.VELOCITY_STALE_MS + 20)
     assert.equal(m.controls.touch.inertiaActive, false)
 
     m = mouseSetup()

@@ -40,7 +40,7 @@ The browser needs WebGPU: current Chrome or Edge, Safari 26+, or Firefox where W
 | Twist | | turn two fingers |
 | Reset view | toolbar button | toolbar button or double-tap |
 
-A quick flick of an orbit or pan drag keeps the model coasting for a moment, with the mouse as well as with a finger (the wheel does not coast). Coasting is skipped when the system asks for reduced motion.
+A quick flick of an orbit or pan drag keeps the model coasting for a moment, with the mouse as well as with a finger (the wheel does not coast). The mouse is tuned to glide a little longer because mouse drags are slower than finger flicks. Coasting is skipped when the system asks for reduced motion.
 
 ## Configuration
 

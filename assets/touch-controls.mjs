@@ -261,31 +261,36 @@ export class TouchGestures {
      * @param {{t: number, x: number, y: number}[]} samples recent pointer positions, oldest first
      * @param {number} releaseT time the pointer lifted (ms)
      * @param {boolean} pan
+     * @param {typeof TOUCH} [profile] thresholds and decay times: TOUCH (default) or MOUSE
      */
-    coast(samples, releaseT, pan) {
+    coast(samples, releaseT, pan, profile = TOUCH) {
         if (!this.inertia) return
-        const [vx, vy] = limitSpeed(...estimateVelocity(samples, releaseT, ['x', 'y']))
-        this.begin({ kind: 'one', vx, vy, vz: 0, pan }, releaseT)
+        const [rx, ry] = estimateVelocity(samples, releaseT, ['x', 'y'], profile)
+        if (Math.hypot(rx, ry) < profile.START_SPEED) return // released too slowly to coast
+        const [vx, vy] = limitSpeed(rx * profile.GAIN, ry * profile.GAIN, profile.MAX_SPEED)
+        this.begin({ kind: 'one', vx, vy, vz: 0, pan, profile }, releaseT)
     }
 
     startMultiFling(t) {
         if (!this.inertia) return
         const [cx, cy, lz] = estimateVelocity(this.samples, t, ['cx', 'cy', 'lz'])
+        const zoomRate = this.pinch.zoomOn ? lz : 0 // ln(finger separation) per ms; ignore pre-engage noise
+        if (Math.hypot(cx, cy) < TOUCH.START_SPEED && Math.abs(zoomRate) < TOUCH.START_ZOOM_RATE) return // too slow to coast
         const [vx, vy] = limitSpeed(cx, cy)
         const rect = this.controls.element.getBoundingClientRect()
         this.begin({
             kind: 'multi',
             vx, vy,
-            vz: this.pinch.zoomOn ? lz : 0, // ln(finger separation) per ms; ignore pre-engage noise
+            vz: zoomRate,
             ax: this.last.cx - rect.left,
             ay: this.last.cy - rect.top,
         }, t)
     }
 
     begin(f, t) {
-        if (Math.hypot(f.vx, f.vy) < TOUCH.START_SPEED && Math.abs(f.vz) < TOUCH.START_ZOOM_RATE) return // too slow to coast
+        if (Math.hypot(f.vx, f.vy) < TOUCH.MIN_SPEED && Math.abs(f.vz) < TOUCH.MIN_ZOOM_RATE) return // nothing to run
         const { camera } = this.controls
-        this.fling = { ...f, lastT: t, epoch: camera.epoch, handle: 0 }
+        this.fling = { profile: TOUCH, ...f, lastT: t, epoch: camera.epoch, handle: 0 }
         this.fling.handle = this.raf((ts) => this.flingStep(ts))
     }
 
@@ -297,23 +302,24 @@ export class TouchGestures {
             this.stopInertia()
             return
         }
+        const tune = f.profile
         const dt = Math.min(ts - f.lastT, TOUCH.MAX_FRAME_MS)
         if (dt > 0) {
             f.lastT = ts
             if (f.kind === 'one' && !f.pan) {
-                const sx = inertiaStep(f.vx, dt, TOUCH.ORBIT_TAU_MS)
-                const sy = inertiaStep(f.vy, dt, TOUCH.ORBIT_TAU_MS)
+                const sx = inertiaStep(f.vx, dt, tune.ORBIT_TAU_MS)
+                const sy = inertiaStep(f.vy, dt, tune.ORBIT_TAU_MS)
                 camera.orbit(-sx.dist * rotateSpeed, sy.dist * rotateSpeed)
                 f.vx = sx.v
                 f.vy = Math.abs(camera.elevation) >= (89 * Math.PI) / 180 - 1e-9 ? 0 : sy.v // stop at the pole
             } else {
-                const sx = inertiaStep(f.vx, dt, TOUCH.PAN_TAU_MS)
-                const sy = inertiaStep(f.vy, dt, TOUCH.PAN_TAU_MS)
+                const sx = inertiaStep(f.vx, dt, tune.PAN_TAU_MS)
+                const sy = inertiaStep(f.vy, dt, tune.PAN_TAU_MS)
                 camera.pan(sx.dist, sy.dist, element.clientHeight)
                 f.vx = sx.v
                 f.vy = sy.v
                 if (f.vz) {
-                    const sz = inertiaStep(f.vz, dt, TOUCH.ZOOM_TAU_MS)
+                    const sz = inertiaStep(f.vz, dt, tune.ZOOM_TAU_MS)
                     const rect = element.getBoundingClientRect()
                     const before = camera.distance
                     camera.zoomAt(Math.exp(-sz.dist), f.ax, f.ay, rect.width, rect.height)
@@ -341,7 +347,9 @@ export class TouchGestures {
 
 /** Event time in ms, on the same clock as requestAnimationFrame timestamps. */
 export function stamp(e) {
-    return e.timeStamp || (typeof performance !== 'undefined' ? performance.now() : Date.now())
+    // A timestamp of 0 is a valid time (tests use it), so only fall back when there is none.
+    if (typeof e.timeStamp === 'number' && Number.isFinite(e.timeStamp)) return e.timeStamp
+    return typeof performance !== 'undefined' ? performance.now() : Date.now()
 }
 
 /** Append a velocity sample, dropping ones too old to matter. */

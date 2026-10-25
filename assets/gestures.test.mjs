@@ -7,7 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-    TOUCH, wrapAngle, pinchMetrics, createPinchState, stepPinch,
+    TOUCH, MOUSE, wrapAngle, pinchMetrics, createPinchState, stepPinch,
     estimateVelocity, limitSpeed, inertiaStep, TapDetector,
 } from './gestures.mjs'
 
@@ -205,4 +205,24 @@ test('TapDetector: slop is measured from where the finger went down', () => {
     d.begin(0, 100, 100)
     d.moved(104, 103) // within 10px
     assert.equal(d.end(50), 'tap')
+})
+
+test('MOUSE tunes only the coasting and leaves the rest of TOUCH alone', () => {
+    assert.ok(Object.isFrozen(MOUSE))
+    for (const k of Object.keys(TOUCH)) {
+        if (['VELOCITY_STALE_MS', 'START_SPEED', 'ORBIT_TAU_MS', 'PAN_TAU_MS', 'GAIN'].includes(k)) continue
+        assert.equal(MOUSE[k], TOUCH[k], k)
+    }
+    assert.ok(MOUSE.ORBIT_TAU_MS > TOUCH.ORBIT_TAU_MS && MOUSE.GAIN > TOUCH.GAIN)
+    assert.ok(MOUSE.START_SPEED < TOUCH.START_SPEED && MOUSE.VELOCITY_STALE_MS > TOUCH.VELOCITY_STALE_MS)
+    assert.equal(TOUCH.GAIN, 1)
+})
+
+test('estimateVelocity uses the profile it is given', () => {
+    const samples = [0, 16, 32, 48].map((t) => ({ t, x: t * 0.5 }))
+    const release = 48 + TOUCH.VELOCITY_STALE_MS + 10
+    assert.deepEqual(estimateVelocity(samples, release, ['x']), [0]) // touch: too long a pause
+    assert.deepEqual(estimateVelocity(samples, release, ['x'], TOUCH), [0])
+    near(estimateVelocity(samples, release, ['x'], MOUSE)[0], 0.5) // mouse: still counts
+    assert.deepEqual(estimateVelocity(samples, 48 + MOUSE.VELOCITY_STALE_MS + 1, ['x'], MOUSE), [0])
 })

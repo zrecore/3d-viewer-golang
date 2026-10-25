@@ -27,12 +27,30 @@ export const TOUCH = Object.freeze({
     ORBIT_TAU_MS: 250,
     PAN_TAU_MS: 250,
     ZOOM_TAU_MS: 150,
-    MAX_SPEED: 3, // px per ms
-    START_SPEED: 0.1, // px per ms; releasing slower than this does not start a fling
+    GAIN: 1, // release speed multiplier
+    MAX_SPEED: 3, // px per ms, after GAIN
+    START_SPEED: 0.1, // px per ms, measured at release; slower than this does not start a fling
     MIN_SPEED: 0.02, // px per ms; below this a running fling stops
     START_ZOOM_RATE: 5e-5, // ln(distance) per ms needed to start a zoom fling
     MIN_ZOOM_RATE: 1e-5, // ln(distance) per ms; below this a running zoom fling stops
     MAX_FRAME_MS: 64,
+})
+
+/**
+ * The same coasting, tuned for a mouse. Mouse drags are slower than finger
+ * flicks (a casual drag releases at 0.2-0.7 px/ms, a flick at 1.5-3), so with
+ * the touch numbers a mouse swipe seemed to stop dead. The mouse therefore
+ * glides longer, gets a boost on release, starts coasting from slower drags
+ * and allows a little more delay between the last movement and letting go of
+ * the button. Touch and pen keep TOUCH.
+ */
+export const MOUSE = Object.freeze({
+    ...TOUCH,
+    VELOCITY_STALE_MS: 100,
+    START_SPEED: 0.05,
+    ORBIT_TAU_MS: 350,
+    PAN_TAU_MS: 300,
+    GAIN: 1.3,
 })
 
 /** Normalise an angle in radians into (-PI, PI]. */
@@ -101,19 +119,20 @@ function engage(state, accKey, onKey, delta, threshold) {
  * @param {{t: number}[]} samples oldest first, each with a timestamp `t` (ms)
  * @param {number} releaseT time the fingers lifted (ms)
  * @param {string[]} keys sample properties to differentiate, e.g. ['x', 'y']
+ * @param {typeof TOUCH} [profile] the thresholds to use (TOUCH or MOUSE)
  * @returns {number[]} units per ms for each key; all zero with fewer than two
  * samples, a too-short window, or a pause before release
  */
-export function estimateVelocity(samples, releaseT, keys) {
+export function estimateVelocity(samples, releaseT, keys, profile = TOUCH) {
     const zero = keys.map(() => 0)
     const n = samples.length
     if (n < 2) return zero
     const last = samples[n - 1]
-    if (releaseT - last.t > TOUCH.VELOCITY_STALE_MS) return zero
+    if (releaseT - last.t > profile.VELOCITY_STALE_MS) return zero
     let first = last
-    for (let i = n - 2; i >= 0 && last.t - samples[i].t <= TOUCH.VELOCITY_WINDOW_MS; i--) first = samples[i]
+    for (let i = n - 2; i >= 0 && last.t - samples[i].t <= profile.VELOCITY_WINDOW_MS; i--) first = samples[i]
     const dt = last.t - first.t
-    if (dt < TOUCH.MIN_SAMPLE_DT_MS) return zero
+    if (dt < profile.MIN_SAMPLE_DT_MS) return zero
     return keys.map((k) => (last[k] - first[k]) / dt)
 }
 

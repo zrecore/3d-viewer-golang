@@ -29,7 +29,7 @@ any failure, or with 2 if Chrome or the server cannot be found.
 | Script | Checks |
 |---|---|
 | `desktop-golden.mjs` | Mouse drags (left, shift, right, middle), wheel zoom and Reset against `golden-desktop.json`, exact to 9 decimals. Guards the desktop controls. |
-| `mouse-inertia.mjs` | Flicks coast and settle; slow drags, pauses and clicks do not; shift/right/middle flicks coast as pans; wheel, a new press, Reset view and reduced motion stop or skip it. |
+| `mouse-inertia.mjs` | Flicks coast and settle; the coast distance matches the release velocity measured from the page's real event stream (fast, medium and casual swipes); a brief pause before releasing still coasts, a long one does not; slow drags and clicks do not; shift/right/middle flicks coast as pans; wheel, a new press, Reset view and reduced motion stop or skip it. |
 | `portrait.mjs` | Model fits a phone-shaped viewport, landscape framing is unchanged, rotating keeps the user's zoom. |
 | `layout-mobile.mjs` | Phone layouts (390x844, 360x640, 844x390): 44px touch targets, info line vs toolbar, Help fit, first-visit collapse; desktop keeps its compact sizes. |
 | `safe-area.mjs` | Notch and home-indicator insets (portrait and landscape) for the toolbar, info line, toast and progress bar, including dragging. |

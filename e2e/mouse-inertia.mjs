@@ -8,6 +8,7 @@
 // shift/right-drag coast as pans, and the wheel, a new press, Reset view and reduced motion all stop or skip it.
 // Needs the server running (go run .). See README.md.
 import { BASE_URL, launch, finish, watchErrors } from './lib.mjs'
+import { MOUSE, TOUCH } from '../assets/gestures.mjs' // the tuning under test (pure module, no DOM)
 
 const b = await launch()
 const page = await b.newPage()
@@ -45,6 +46,43 @@ check('...in the direction of the drag (rightward drag lowers the azimuth)', r1.
 let s = await settles()
 check('...and then settles by itself', s.stopped, `final az ${s.d.az.toFixed(3)}, inertia ${s.d.inertia}`)
 check('...elevation is untouched by a horizontal flick', near(s.d.el, a.el, 1e-9))
+
+// --- the coast is what the release velocity says it should be (measured from the page's real event stream)
+// Scripted drags cannot be given an exact speed (every move crosses the DevTools protocol), so instead of
+// asserting a speed we record the events the page actually received and predict the coast from them.
+await page.evaluate(() => {
+  window.__ev = []
+  const c = document.getElementById('viewerCanvas')
+  for (const t of ['pointermove', 'pointerup']) c.addEventListener(t, (e) => window.__ev.push({ t: e.type, ts: e.timeStamp, x: e.clientX }), true)
+})
+async function measuredTrial(pxPerStep, ms, stallMs = 0) {
+  await reset(); await page.evaluate(() => { window.__ev = [] })
+  const start = await cam()
+  await page.mouse.move(300, 400); await page.mouse.down()
+  let x = 300; const t0 = Date.now()
+  while (Date.now() - t0 < ms) { x += pxPerStep; await page.mouse.move(x, 400); await w(2) }
+  if (stallMs) await w(stallMs)
+  await page.mouse.up()
+  const atRelease = await cam(); await w(4200); const end = await cam()
+  const ev = await page.evaluate(() => window.__ev)
+  const up = ev.filter(e => e.t === 'pointerup').pop(), mv = ev.filter(e => e.t === 'pointermove')
+  const last = mv[mv.length - 1]; let first = last
+  for (let i = mv.length - 2; i >= 0 && last.ts - mv[i].ts <= MOUSE.VELOCITY_WINDOW_MS; i--) first = mv[i]
+  const dt = last.ts - first.ts, v = dt >= MOUSE.MIN_SAMPLE_DT_MS ? (last.x - first.x) / dt : 0
+  const coasts = (up.ts - last.ts) <= MOUSE.VELOCITY_STALE_MS && Math.abs(v) >= MOUSE.START_SPEED
+  const predictedPx = coasts ? (Math.min(Math.abs(v) * MOUSE.GAIN, MOUSE.MAX_SPEED) - TOUCH.MIN_SPEED) * MOUSE.ORBIT_TAU_MS : 0
+  return { v, predictedPx, actualPx: Math.abs(end.az - atRelease.az) / 0.005, dragPx: Math.abs(atRelease.az - start.az) / 0.005, stall: up.ts - last.ts }
+}
+for (const [label, step, ms] of [['fast', 14, 300], ['medium', 8, 400], ['casual', 4, 500]]) {
+  const r = await measuredTrial(step, ms)
+  check(`${label} swipe (${r.v.toFixed(2)} px/ms at release): coasts as far as its release velocity predicts`,
+    Math.abs(r.actualPx - r.predictedPx) <= Math.max(6, 0.12 * r.predictedPx), `predicted ${r.predictedPx.toFixed(0)}px, actual ${r.actualPx.toFixed(0)}px (the drag itself was ${r.dragPx.toFixed(0)}px)`)
+  check(`...and that is a visible glide (at least a third of the drag)`, r.actualPx >= r.dragPx / 3, `${r.actualPx.toFixed(0)}px after a ${r.dragPx.toFixed(0)}px drag`)
+}
+const brief = await measuredTrial(10, 300, 70)
+check('a brief pause (about 70ms) before releasing the button still coasts', brief.stall > TOUCH.VELOCITY_STALE_MS && brief.actualPx > 40, `${brief.stall.toFixed(0)}ms between the last movement and the release, coasted ${brief.actualPx.toFixed(0)}px`)
+const longPause = await measuredTrial(10, 300, 220)
+check('a long pause (over 200ms) before releasing means no coast', longPause.actualPx < 1, `${longPause.actualPx.toFixed(1)}px`)
 
 // --- vertical flick stops at the pole
 await reset()

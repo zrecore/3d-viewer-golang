@@ -6,6 +6,7 @@
 
 import { lookAt, perspective } from './mat4.mjs'
 import { TouchGestures, stamp, pushSample } from './touch-controls.mjs'
+import { MOUSE } from './gestures.mjs'
 
 const DEFAULTS = Object.freeze({
     azimuth: -Math.PI / 4,   // radians around the Z axis
@@ -318,7 +319,7 @@ export class OrbitControls {
         this.element.releasePointerCapture?.(e.pointerId)
         this.pinchStart = null
         this.dragSamples = null
-        if (coast) this.touch.coast(coast, stamp(e), this.dragPan)
+        if (coast) this.touch.coast(coast, stamp(e), this.dragPan, MOUSE)
     }
 
     onWheel(e) {
