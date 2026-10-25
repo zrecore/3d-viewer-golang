@@ -5,62 +5,111 @@
  * @license MIT. See LICENSE file.
  */
 -->
+<!DOCTYPE html>
 <html>
     <head>
         <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <title>{{ .title }}</title>
         <link rel="stylesheet" type="text/css" href="/assets/style.css" />
         <link rel="icon" type="image/x-icon" href="/assets/fmto/favicon.png" />
+        <script>
+            // Restore the toolbar's collapsed state and position before first paint.
+            // Keys 'stl-viewer:<name>-collapsed' / '-pos' are shared with assets/app.mjs.
+            try {
+                const root = document.documentElement
+                for (const [name, edge] of [['toolbar', 'right']]) {
+                    const saved = localStorage.getItem('stl-viewer:' + name + '-collapsed')
+                    // First visit on a narrow screen: start collapsed so the toolbar does not cover the model.
+                    const collapsed = saved === null ? matchMedia('(max-width: 40rem)').matches : saved === '1'
+                    if (collapsed) root.classList.add(name + '-collapsed')
+                    const pos = JSON.parse(localStorage.getItem('stl-viewer:' + name + '-pos') || 'null')
+                    if (pos && Number.isFinite(pos[edge]) && Number.isFinite(pos.top)) {
+                        root.style.setProperty('--' + name + '-' + edge, pos[edge] + 'px')
+                        root.style.setProperty('--' + name + '-top', pos.top + 'px')
+                    }
+                }
+            } catch (e) {}
+        </script>
     </head>
-    <body class="flex flex-cols justify-center p-4 h-full">
-        
-        <div class="card m-2 w-640px h-auto">
-            <h1 class="header my-4">{{ .title }}</h1>
-            <sub class="sub-header my-4">by <a href="https://github.com/zrecore" target="_blank">@zrecore</a></sub>
-            <p class="my-4">This is an 3D viewer built in GO. Loads STL files.</p>
-            <p class="my-4">Renders via WebGPU. Drag to orbit, scroll to zoom, shift-drag or right-drag to pan.</p>
-
-            <div id="authBar" class="flex align-center my-4" data-authenticated="{{ if .user }}true{{ else }}false{{ end }}">
-                <span id="authUser" class="mx-2{{ if not .user }} hidden{{ end }}">{{ if .user }}Signed in as {{ .user.Name }}{{ end }}</span>
-                <a id="linkSignIn" class="mx-2{{ if .user }} hidden{{ end }}" href="/auth/login">Sign in to upload</a>
-                <button id="btnSignOut" type="button" class="mx-2{{ if not .user }} hidden{{ end }}">Sign out</button>
-            </div>
-            <form id="frmUpload" class="flex flex-cols align-center my-4" enctype="multipart/form-data">
-                <label for="uploadFile">Upload</label>
-                <input id="uploadFile" name="file" class="mx-2" type="file" accept=".stl" disabled />
-                <button id="btnUpload" class="mx-2 disabled" type="submit" disabled>Upload</button>
-            </form>
-            <div id="uploadMessage" class="notice hidden" role="status"></div>
-
-            <form id="frmSearch" class="flex flex-cols justify-center align-center w-full">
-                <label for="query">Search</label>
-                <input id="query" name="query" class="my-4 mx-2" type="text" autocomplete="off" />
-                <button class="my-4 mx-2" type="submit">Go</button>
-            </form>
-            <h2 class="flex flex-cols">Models</h2>
-            <div id="modelList" class="card card-colorize m-4 model-list">
-                {{ range .entries}}
-                <div class="card-colorize font-monospace p-2 file-entry" data-name="{{.Name}}" title="{{.Size}} B" tabindex="0" role="button">{{ .Name }}</div>
-                {{ end }}
-                <div id="noMatches" class="p-2 hidden">No models match your search.</div>
-            </div>
-            
-            <div class="m-4">
-                <div class="viewer-wrap">
-                    <canvas id="viewerCanvas" class="my-4 w-full h-auto aspect-16-9"></canvas>
-                    <div id="viewerMessage" class="viewer-message hidden" role="alert"></div>
-                </div>
-                <div class="flex align-center">
-                    <button id="btnResetView" type="button" class="my-2">Reset view</button>
-                    <span id="viewerInfo" class="mx-2 viewer-info"></span>
-                </div>
-                <div class="relative w-full">
-                    <div id="progressBar" class="p-4 flex flex-rows align-center w-full absolute hidden float-right" style="font-size: 0.8rem; height: 1rem; background-repeat: none; background-color: #ffffff;">0%</div>
-                </div>
-            </div>
-
+    <body>
+        <div class="viewer-wrap viewer-full">
+            <canvas id="viewerCanvas"></canvas>
+            <div id="viewerMessage" class="viewer-message hidden" role="alert"></div>
+            <div id="progressBar" class="viewer-progress hidden" role="progressbar" aria-label="Model load progress">0%</div>
+            <div id="uploadMessage" class="notice upload-toast hidden" role="status"></div>
+            <div id="viewerInfo" class="viewer-info viewer-overlay-info">No model loaded. Upload an .stl file to view it.</div>
         </div>
+
+        <div id="safeProbe" class="safe-probe" aria-hidden="true"></div>
+
+        <div id="toolbar" class="floating toolbar" role="toolbar" aria-label="Viewer tools" aria-orientation="vertical">
+            <div id="toolbarHandle" class="float-handle" aria-hidden="true" title="Drag to move">&#8943;</div>
+            <button id="btnToggleToolbar" type="button" class="float-toggle toolbar-toggle" aria-expanded="true" aria-label="Collapse toolbar" title="Collapse toolbar"></button>
+            <button id="btnUpload" type="button" class="toolbar-button" aria-label="Upload an STL file" title="Upload an .stl file (kept only in this browser)">
+                <span class="toolbar-icon" aria-hidden="true">&#8593;</span><span class="toolbar-label">Upload</span>
+            </button>
+            <input id="uploadFile" type="file" hidden />
+            <button id="btnResetView" type="button" class="toolbar-button" aria-label="Reset view" title="Reset view">
+                <span class="toolbar-icon" aria-hidden="true">&#8634;</span><span class="toolbar-label">Reset view</span>
+            </button>
+            <button id="btnHelp" type="button" class="toolbar-button" aria-label="Help" title="Help" aria-haspopup="dialog" aria-expanded="false" aria-controls="help">
+                <span class="toolbar-icon" aria-hidden="true">?</span><span class="toolbar-label">Help</span>
+            </button>
+        </div>
+
+        <div id="help" class="floating help hidden" role="dialog" aria-modal="false" aria-labelledby="helpTitle">
+            <div id="helpHandle" class="float-handle" aria-hidden="true" title="Drag to move">&#8943;</div>
+            <div class="help-body">
+                <div class="help-header">
+                    <h2 id="helpTitle" class="help-title">3D STL Viewer</h2>
+                    <button id="btnCloseHelp" type="button" class="help-close" aria-label="Close help" title="Close">&times;</button>
+                </div>
+                <p class="help-credit">
+                    by <a href="https://github.com/zrecore" target="_blank" rel="noopener noreferrer">@zrecore</a>
+                    &middot; <a href="https://github.com/zrecore/3d-viewer-golang" target="_blank" rel="noopener noreferrer">github.com/zrecore/3d-viewer-golang</a>
+                </p>
+
+                <h3 class="help-subtitle">3D controls</h3>
+                <dl class="help-controls">
+                    <dt>Orbit</dt>
+                    <dd>
+                        <div><span class="help-device">Mouse</span> drag with the left button</div>
+                        <div><span class="help-device">Touch</span> drag with one finger</div>
+                    </dd>
+                    <dt>Pan</dt>
+                    <dd>
+                        <div><span class="help-device">Mouse</span> Shift + drag, or drag with the right or middle button</div>
+                        <div><span class="help-device">Touch</span> drag with two fingers</div>
+                    </dd>
+                    <dt>Zoom</dt>
+                    <dd>
+                        <div><span class="help-device">Mouse</span> scroll the wheel</div>
+                        <div><span class="help-device">Touch</span> pinch with two fingers; it zooms toward your fingers</div>
+                    </dd>
+                    <dt>Twist</dt>
+                    <dd>
+                        <div><span class="help-device">Touch</span> turn two fingers around each other to spin the model</div>
+                    </dd>
+                    <dt>Coast</dt>
+                    <dd>
+                        <div>Flick an orbit or pan drag and let go: the model keeps moving, then slows to a stop. Press, touch or scroll to stop it sooner.</div>
+                    </dd>
+                    <dt>Reset view</dt>
+                    <dd>
+                        <div><span class="help-device">Mouse</span> the Reset view button in the toolbar</div>
+                        <div><span class="help-device">Touch</span> the Reset view button, or double-tap the model</div>
+                    </dd>
+                </dl>
+
+                <h3 class="help-subtitle">Models</h3>
+                <p>Use Upload in the toolbar to open an .stl file from your computer or device. The last model you open is kept only in this browser and shown again next time. Nothing is sent to a server.</p>
+
+                <h3 class="help-subtitle">Toolbar</h3>
+                <p>Drag the &#8943; strip to move the toolbar or this window. The arrow button at the top of the toolbar collapses it to icons.</p>
+            </div>
+        </div>
+
         <script type="module">
             import { initApp } from "/assets/app.mjs"
 

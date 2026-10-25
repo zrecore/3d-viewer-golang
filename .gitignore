@@ -26,3 +26,7 @@ go.work.sum
 
 # macOS
 .DS_Store
+
+# e2e tooling
+e2e/node_modules/
+e2e/out/

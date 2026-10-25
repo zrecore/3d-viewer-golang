@@ -10,6 +10,28 @@ const DEPTH_FORMAT = 'depth24plus'
 const FLOATS_PER_VERTEX = 6 // position vec3 + normal vec3
 const UNIFORM_BYTES = 64 + 64 + 16 + 16 + 16 // mvp, normalMatrix, lightDir, baseColor, params
 const CLEAR_COLOR = { r: 0.055, g: 0.09, b: 0.125, a: 1 }
+const MAX_DPR = 2.5
+const MAX_COARSE_PIXELS = 4e6 // touch-first devices: cap the drawing buffer for mobile GPUs
+
+/**
+ * Drawing-buffer size for a canvas. The device pixel ratio is capped at
+ * `maxDpr`, the area at `maxPixels` (keeping the aspect ratio), and each side
+ * at the GPU's texture limit. For ordinary desktop displays this is just
+ * round(css size * dpr).
+ * @returns {[number, number]} width and height in device pixels
+ */
+export function backingSize(cssW, cssH, dpr, maxDim, { maxDpr = MAX_DPR, maxPixels = Infinity } = {}) {
+    const scale = Math.min(dpr || 1, maxDpr)
+    let w = cssW * scale
+    let h = cssH * scale
+    if (w * h > maxPixels) {
+        const k = Math.sqrt(maxPixels / (w * h))
+        w *= k
+        h *= k
+    }
+    const side = (v) => Math.min(maxDim, Math.max(1, Math.round(v)))
+    return [side(w), side(h)]
+}
 
 /**
  * Small raw-WebGPU renderer for a single mesh: one uniform buffer, one depth
@@ -61,6 +83,7 @@ export class ModelRenderer {
         this.depthTexture = null
         this.dirty = true
         this.frameHandle = 0
+        this.frames = 0 // completed draw() calls, read by the ?debug hook
         this.lost = false
         this.onLost = () => {}
 
@@ -173,10 +196,15 @@ export class ModelRenderer {
 
     /** Match the drawing buffer to the CSS size and devicePixelRatio. */
     resize() {
+        const cssW = this.canvas.clientWidth
+        const cssH = this.canvas.clientHeight
+        // Portrait viewports need the camera further back (no-op for landscape).
+        if (cssW > 0 && cssH > 0) this.camera.setViewAspect(cssW / cssH)
+
         const dpr = window.devicePixelRatio || 1
         const max = this.device.limits.maxTextureDimension2D
-        const width = Math.min(max, Math.max(1, Math.round(this.canvas.clientWidth * dpr)))
-        const height = Math.min(max, Math.max(1, Math.round(this.canvas.clientHeight * dpr)))
+        const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+        const [width, height] = backingSize(cssW, cssH, dpr, max, { maxPixels: coarse ? MAX_COARSE_PIXELS : Infinity })
 
         if (this.canvas.width === width && this.canvas.height === height && this.depthTexture) {
             return
@@ -190,7 +218,10 @@ export class ModelRenderer {
             format: DEPTH_FORMAT,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         })
-        this.requestRender()
+        // Setting canvas.width cleared the buffer. Draw now, in the same task, so a
+        // frame is never shown blank while a deferred redraw waits for the next rAF.
+        this.dirty = true
+        this.draw()
     }
 
     requestRender() {
@@ -206,6 +237,7 @@ export class ModelRenderer {
     draw() {
         this.dirty = false
         if (this.lost || !this.depthTexture) return
+        this.frames++
 
         const aspect = this.canvas.width / this.canvas.height
         this.camera.viewMatrix(this.view)

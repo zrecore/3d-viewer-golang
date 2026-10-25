@@ -1,6 +1,6 @@
 # 3D Viewer (Go)
 
-A 3D viewer written in Go (Gin) with a WebGPU front end. It lists STL files from `assets/stl/`, renders them in the browser with an orbit camera and lighting, and lets signed-in users upload new models.
+A 3D viewer written in Go (Gin) with a WebGPU front end. It renders STL files in the browser with an orbit camera and lighting. Anyone can open an `.stl` file with the toolbar's Upload button: the viewer shows it and remembers the last one in their own browser (IndexedDB). Nothing is shown until a model has been opened. There are no accounts or sign-in, and the file never leaves the browser. The Go server is read-only: it serves the page, the static assets and the example models in `assets/stl/` (available through the API but not listed in the page).
 
 ## Clone
 
@@ -30,6 +30,18 @@ Open http://localhost:8080/.
 
 The browser needs WebGPU: current Chrome or Edge, Safari 26+, or Firefox where WebGPU is enabled.
 
+## Controls
+
+| Action | Mouse | Touch |
+|---|---|---|
+| Orbit | drag | one finger |
+| Pan | shift/right/middle drag | two fingers |
+| Zoom | wheel | pinch (zooms toward your fingers) |
+| Twist | | turn two fingers |
+| Reset view | toolbar button | toolbar button or double-tap |
+
+A quick flick of an orbit or pan drag keeps the model coasting for a moment, with the mouse as well as with a finger (the wheel does not coast). Coasting is skipped when the system asks for reduced motion.
+
 ## Configuration
 
 Environment variables (see `.env.example`; Compose reads `.env` automatically):
@@ -39,15 +51,27 @@ Environment variables (see `.env.example`; Compose reads `.env` automatically):
 | `ADDR` | `:8080` | Listen address |
 | `ASSETS_DIR` | `./assets` | Static assets; models live in `$ASSETS_DIR/stl` |
 | `TEMPLATES_DIR` | `./templates` | HTML templates |
-| `MAX_UPLOAD_MB` | `50` | Upload size limit |
-| `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URL` | unset | OpenID Connect login (Authorization Code + PKCE). If `OIDC_ISSUER` is unset, uploads return 503. |
-| `SESSION_SECRET` | unset | Cookie signing key, at least 32 bytes; required when OIDC is configured |
-| `COOKIE_SECURE` | `true` | Set `false` only for plain-http local development |
+
+Every variable is optional.
+
+## Server API
+
+Read-only. The server has no sign-in, sessions, cookies or write routes (a test checks that those routes stay gone).
+
+| Route | Returns |
+|---|---|
+| `GET /` | The viewer page |
+| `GET /api/models` (alias `/api/load-entries`) | `[{name, size, modTime}]` for the example STL files, `[]` when there are none |
+| `GET /api/models/:name` | The raw STL (`application/sla`) |
+| `GET /assets/...` | Static files under `ASSETS_DIR` |
+
+The browser upload is separate: it is read in the page, validated and kept in IndexedDB (the last file only). Nothing is posted anywhere.
 
 ## Development
 
 ```bash
-make check      # build, vet, Go tests, JS parser tests
+make check      # build, vet, Go tests, JS tests (all the unit tests)
+make e2e        # browser end-to-end checks (server running + Chrome; see e2e/README.md)
 ```
 
 A production-style image is available with `docker compose --profile prod up --build viewer`.

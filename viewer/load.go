@@ -7,12 +7,7 @@ package viewer
  */
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,12 +25,6 @@ type Model struct {
 var (
 	// ErrInvalidName is returned for names that are not a plain *.stl base name.
 	ErrInvalidName = errors.New("invalid model name")
-	// ErrInvalidContent is returned when the data does not look like an STL file.
-	ErrInvalidContent = errors.New("content is not a valid STL file")
-	// ErrExists is returned when a model with the same name already exists.
-	ErrExists = errors.New("model already exists")
-	// ErrTooLarge is returned when an upload exceeds the size limit.
-	ErrTooLarge = errors.New("model is too large")
 	// ErrNotFound is returned when a model does not exist.
 	ErrNotFound = errors.New("model not found")
 )
@@ -119,100 +108,4 @@ func Stat(dir, name string) (Model, error) {
 		return Model{}, ErrNotFound
 	}
 	return Model{Name: name, Size: info.Size(), ModTime: info.ModTime()}, nil
-}
-
-// validSTL reports whether data is plausibly a binary or ASCII STL file.
-func validSTL(data []byte) bool {
-	// Binary: 80 byte header, uint32 triangle count, 50 bytes per triangle.
-	if len(data) >= 84 {
-		count := binary.LittleEndian.Uint32(data[80:84])
-		if uint64(len(data)) == 84+50*uint64(count) {
-			return true
-		}
-	}
-	// ASCII: starts with "solid" and contains "facet".
-	trimmed := bytes.TrimLeft(data, " \t\r\n\xef\xbb\xbf")
-	if len(trimmed) >= 5 && strings.EqualFold(string(trimmed[:5]), "solid") &&
-		bytes.Contains(bytes.ToLower(data), []byte("facet")) {
-		return true
-	}
-	return false
-}
-
-// Save validates and atomically writes an STL file named name into dir. It
-// never overwrites an existing file. At most maxBytes are accepted
-// (maxBytes <= 0 means unlimited).
-func Save(dir, name string, r io.Reader, maxBytes int64) (Model, error) {
-	if !ValidName(name) {
-		return Model{}, ErrInvalidName
-	}
-	src := r
-	if maxBytes > 0 {
-		src = io.LimitReader(r, maxBytes+1)
-	}
-	data, err := io.ReadAll(src)
-	if err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			return Model{}, ErrTooLarge
-		}
-		return Model{}, err
-	}
-	if maxBytes > 0 && int64(len(data)) > maxBytes {
-		return Model{}, ErrTooLarge
-	}
-	if !validSTL(data) {
-		return Model{}, ErrInvalidContent
-	}
-
-	dest := filepath.Join(dir, name)
-	if _, err := os.Lstat(dest); err == nil {
-		return Model{}, ErrExists
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return Model{}, err
-	}
-
-	tmp, err := os.CreateTemp(dir, ".upload-*.tmp")
-	if err != nil {
-		return Model{}, err
-	}
-	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		cleanup()
-		return Model{}, err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		cleanup()
-		return Model{}, err
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return Model{}, err
-	}
-	if err := os.Chmod(tmpName, 0o644); err != nil {
-		cleanup()
-		return Model{}, err
-	}
-	// os.Link fails if dest exists, which makes the no-overwrite check atomic.
-	// Filesystems without hard links fall back to a re-checked rename.
-	if err := os.Link(tmpName, dest); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			cleanup()
-			return Model{}, ErrExists
-		}
-		if _, serr := os.Lstat(dest); serr == nil {
-			cleanup()
-			return Model{}, ErrExists
-		}
-		if rerr := os.Rename(tmpName, dest); rerr != nil {
-			cleanup()
-			return Model{}, fmt.Errorf("saving model: %w", rerr)
-		}
-		return Stat(dir, name)
-	}
-	cleanup()
-	return Stat(dir, name)
 }

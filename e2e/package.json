@@ -1,0 +1,12 @@
+{
+  "name": "3d-viewer-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser end-to-end checks for the viewer (headless Chrome, software WebGPU). Not run by CI.",
+  "scripts": {
+    "test": "node run-all.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.16.0"
+  }
+}

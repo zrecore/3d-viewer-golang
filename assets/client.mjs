@@ -135,17 +135,38 @@ class ClientViewer
 
     /** Parse and display STL bytes you already have (ArrayBuffer). */
     async loadSTLBuffer(buffer, label = 'model') {
+        const token = ++this.loadToken
         const ok = await this.ready
         if (!ok) return false
         try {
             this.showMessage('')
-            this.displayModel(parseSTL(buffer), label)
+            this.progressUpdateCallback(0)
+            await nextTask() // let the progress bar repaint before the synchronous parse
+            const model = parseSTL(buffer)
+            if (token !== this.loadToken) return false // superseded by a newer request
+
+            this.progressUpdateCallback(90)
+            await nextTask()
+            if (token !== this.loadToken) return false
+            this.displayModel(model, label)
+            this.progressUpdateCallback(100.0)
             return true
         } catch (ex) {
             console.error(ex)
-            this.showMessage('Could not read "' + label + '": ' + (ex && ex.message ? ex.message : ex), 'error')
+            if (token === this.loadToken) {
+                this.progressUpdateCallback(100.0)
+                this.showMessage('Could not read "' + label + '": ' + (ex && ex.message ? ex.message : ex), 'error')
+            }
             return false
         }
+    }
+
+    /** Remove the current model from the view. */
+    clear() {
+        this.loadToken++ // cancel any load still in flight
+        this.renderer?.clearMesh()
+        this.showMessage('')
+        if (this.infoElement) this.infoElement.textContent = ''
     }
 
     displayModel(model, label) {

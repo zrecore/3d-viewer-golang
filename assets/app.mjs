@@ -5,22 +5,23 @@
  */
 
 import { ClientViewer } from '/assets/client.mjs'
+import { parseSTL } from '/assets/stl-parser.mjs'
+import { isValidModelName, saveLastModel, loadLastModel } from '/assets/local-store.mjs'
+
+/** Largest file accepted into this browser's storage. */
+const MAX_LOCAL_MODEL_BYTES = 50 * 1024 * 1024
 
 /**
- * Page wiring for templates/index.html: model list, search filter, upload,
- * auth state, and the viewer. Everything is looked up by element id.
+ * Page wiring for templates/index.html: the toolbar (upload, reset view) and the viewer. The last model
+ * the user uploaded is kept in this browser only and shown on the next visit;
+ * nothing is shown until one has been uploaded. Everything is looked up by element id.
  */
 export function initApp() {
     const $ = (id) => document.getElementById(id)
+    const root = document.documentElement
 
     const viewer = new ClientViewer('viewerCanvas', { messageId: 'viewerMessage', infoId: 'viewerInfo' })
     const progressBar = $('progressBar')
-    const list = $('modelList')
-    const noMatches = $('noMatches')
-    const searchForm = $('frmSearch')
-    const searchInput = $('query')
-
-    let selectedName = null
 
     // ---------------------------------------------------------------- progress
     viewer.progressUpdateCallback = (percent) => {
@@ -37,180 +38,257 @@ export function initApp() {
         }
     }
 
-    // ------------------------------------------------------------- model list
-    const entryElements = () => Array.from(list.querySelectorAll('.file-entry'))
-
-    function applyFilter() {
-        const q = searchInput.value.trim().toLowerCase()
-        let visible = 0
-        for (const el of entryElements()) {
-            const match = !q || el.dataset.name.toLowerCase().includes(q)
-            el.classList.toggle('hidden', !match)
-            if (match) visible++
-        }
-        noMatches.classList.toggle('hidden', visible > 0)
-    }
-
-    function markSelected() {
-        for (const el of entryElements()) {
-            el.classList.toggle('selected', el.dataset.name === selectedName)
-        }
-    }
-
-    function renderList(models) {
-        list.querySelectorAll('.file-entry').forEach((el) => el.remove())
-        const frag = document.createDocumentFragment()
-        for (const m of models) {
-            const div = document.createElement('div')
-            div.className = 'card-colorize font-monospace p-2 file-entry'
-            div.dataset.name = m.name
-            div.title = formatBytes(m.size)
-            div.tabIndex = 0
-            div.setAttribute('role', 'button')
-            div.textContent = m.name
-            frag.appendChild(div)
-        }
-        list.insertBefore(frag, noMatches)
-        markSelected()
-        applyFilter()
-    }
-
-    async function refreshList() {
-        try {
-            const res = await fetch('/api/models', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-            if (!res.ok) throw new Error('HTTP ' + res.status)
-            const models = await res.json()
-            if (Array.isArray(models)) renderList(models)
-        } catch (ex) {
-            // Keep the server-rendered list if the refresh fails.
-            console.warn('Could not refresh model list:', ex)
-        }
-    }
-
-    async function selectEntry(el) {
-        const name = el?.dataset?.name
-        if (!name) return
-        selectedName = name
-        markSelected()
-        await viewer.loadSTLFile(name)
-    }
-
-    list.addEventListener('click', (ev) => selectEntry(ev.target.closest('.file-entry')))
-    list.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter' || ev.key === ' ') {
-            const el = ev.target.closest('.file-entry')
-            if (el) {
-                ev.preventDefault()
-                selectEntry(el)
-            }
-        }
-    })
-
-    searchForm.addEventListener('submit', (ev) => {
-        ev.preventDefault()
-        applyFilter()
-    })
-    searchInput.addEventListener('input', applyFilter)
-
     $('btnResetView').addEventListener('click', () => viewer.resetCamera())
 
-    // ------------------------------------------------------------------- auth
-    const uploadForm = $('frmUpload')
+    // ----------------------------------------------------------------- upload
+    // Uploads are stored in this browser (IndexedDB) and never sent to the server.
     const uploadFile = $('uploadFile')
     const uploadButton = $('btnUpload')
     const uploadMessage = $('uploadMessage')
-    const signInLink = $('linkSignIn')
-    const signOutButton = $('btnSignOut')
-    const authUser = $('authUser')
+
+    // The message overlays the bottom of the screen and fades away on its own.
+    const UPLOAD_MESSAGE_MS = 15000
+    const UPLOAD_MESSAGE_FADE_MS = 600
+    let uploadFadeTimer = null
+    let uploadHideTimer = null
 
     function setUploadMessage(text, isError) {
+        clearTimeout(uploadFadeTimer)
+        clearTimeout(uploadHideTimer)
+        uploadMessage.classList.remove('fading')
         uploadMessage.textContent = text || ''
         uploadMessage.classList.toggle('hidden', !text)
         uploadMessage.classList.toggle('error', !!isError)
+        if (!text) return
+        uploadFadeTimer = setTimeout(() => {
+            uploadMessage.classList.add('fading')
+            uploadHideTimer = setTimeout(() => {
+                uploadMessage.classList.add('hidden')
+                uploadMessage.classList.remove('fading')
+            }, UPLOAD_MESSAGE_FADE_MS)
+        }, UPLOAD_MESSAGE_MS)
     }
 
-    function applyAuth(me) {
-        const authed = !!(me && me.authenticated)
-        uploadFile.disabled = !authed
-        uploadButton.disabled = !authed
-        uploadButton.classList.toggle('disabled', !authed)
-        signInLink.classList.toggle('hidden', authed)
-        signOutButton.classList.toggle('hidden', !authed)
-        authUser.classList.toggle('hidden', !authed)
-        authUser.textContent = authed ? 'Signed in as ' + (me.user?.name || me.user?.email || 'user') : ''
-    }
-
-    async function refreshAuth() {
+    // The Upload button opens the file picker; choosing a file uploads it right away.
+    uploadButton.addEventListener('click', () => uploadFile.click())
+    uploadFile.addEventListener('change', async () => {
+        const file = uploadFile.files && uploadFile.files[0]
+        if (!file) return
+        uploadButton.disabled = true
         try {
-            const res = await fetch('/api/me', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-            if (!res.ok) throw new Error('HTTP ' + res.status)
-            applyAuth(await res.json())
-        } catch (ex) {
-            console.warn('Could not determine sign-in state:', ex)
-            applyAuth({ authenticated: false })
+            await storeAndShow(file)
+        } finally {
+            uploadFile.value = '' // so choosing the same file again still fires `change`
+            uploadButton.disabled = false
         }
-    }
-
-    signOutButton.addEventListener('click', async () => {
-        signOutButton.disabled = true
-        try {
-            await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' })
-        } catch (ex) {
-            console.warn('Sign out request failed:', ex)
-        }
-        signOutButton.disabled = false
-        setUploadMessage('')
-        await refreshAuth()
     })
 
-    uploadForm.addEventListener('submit', async (ev) => {
-        ev.preventDefault()
-        const file = uploadFile.files && uploadFile.files[0]
-        if (!file) {
-            setUploadMessage('Choose an .stl file first.', true)
+    async function storeAndShow(file) {
+        if (!isValidModelName(file.name)) {
+            setUploadMessage('That is not an .stl file. Choose a file whose name ends in .stl.', true)
             return
         }
-        if (!/\.stl$/i.test(file.name)) {
-            setUploadMessage('Only .stl files can be uploaded.', true)
+        if (file.size > MAX_LOCAL_MODEL_BYTES) {
+            setUploadMessage('That file is larger than ' + formatBytes(MAX_LOCAL_MODEL_BYTES) + '.', true)
             return
         }
-
-        const data = new FormData()
-        data.append('file', file, file.name)
-
-        uploadButton.disabled = true
-        setUploadMessage('Uploading ' + file.name + '...', false)
+        setUploadMessage('Saving ' + file.name + '...', false)
         try {
-            const res = await fetch('/api/models', { method: 'POST', body: data, credentials: 'same-origin' })
-            let payload = null
-            try { payload = await res.json() } catch (_) { /* non-JSON body */ }
+            const data = await file.arrayBuffer()
+            parseSTL(data) // reject files that are not valid STL before storing them
+            await saveLastModel(file.name, data)
 
-            if (!res.ok) {
-                setUploadMessage((payload && payload.error) || ('Upload failed (HTTP ' + res.status + ').'), true)
-                if (res.status === 401) await refreshAuth()
-                return
-            }
-
-            setUploadMessage('Uploaded ' + (payload?.name || file.name) + '.', false)
-            uploadForm.reset()
-            await refreshList()
-            if (payload?.name) {
-                selectedName = payload.name
-                markSelected()
-                await viewer.loadSTLFile(payload.name)
-            }
+            setUploadMessage('Saved ' + file.name + ' in this browser.', false)
+            await viewer.loadSTLBuffer(data, file.name)
         } catch (ex) {
-            setUploadMessage('Upload failed: ' + (ex && ex.message ? ex.message : ex), true)
-        } finally {
-            // Re-enable only if still signed in (the 401 path already updated state).
-            uploadButton.disabled = uploadFile.disabled
+            const quota = ex && ex.name === 'QuotaExceededError'
+            const text = quota ? 'Not enough browser storage space for this file.' : (ex && ex.message ? ex.message : String(ex))
+            setUploadMessage(quota ? text : 'Could not save: ' + text, true)
         }
+    }
+
+    // ------------------------------------------ movable, collapsible toolbar
+    // `hi` never goes below `lo`, so a box larger than the room pins to the near edge.
+    const clampBetween = (value, lo, hi) => Math.min(Math.max(value, lo), Math.max(lo, hi))
+
+    /** Safe-area insets in CSS pixels, read from the invisible probe (see .safe-probe). */
+    const safeProbe = $('safeProbe')
+    function safeInsets() {
+        const cs = getComputedStyle(safeProbe)
+        return {
+            top: parseFloat(cs.paddingTop) || 0,
+            right: parseFloat(cs.paddingRight) || 0,
+            bottom: parseFloat(cs.paddingBottom) || 0,
+            left: parseFloat(cs.paddingLeft) || 0,
+        }
+    }
+
+    /**
+     * Make a floating box (the toolbar, the help dialog) draggable by its handle. The box is positioned by its
+     * distance from the top and from `edge` ('left' or 'right'), so collapsing it
+     * (which narrows it) leaves that edge where it is. The spot is saved under
+     * 'stl-viewer:<name>-pos', which the inline script in index.html restores
+     * before first paint.
+     * @returns {() => void} pulls the box back onto the screen (call it after showing the box)
+     */
+    function makeMovable({ el, handle, name, edge }) {
+        const sign = edge === 'right' ? -1 : 1
+        const edgeVar = '--' + name + '-' + edge
+        const topVar = '--' + name + '-top'
+
+        const current = () => {
+            const r = el.getBoundingClientRect()
+            return { [edge]: edge === 'right' ? root.clientWidth - r.right : r.left, top: r.top }
+        }
+        // Keep the box inside the safe area (all zero except on notched screens in cover mode).
+        const clampPos = (pos) => {
+            const inset = safeInsets()
+            const near = edge === 'right' ? inset.right : inset.left
+            const far = edge === 'right' ? inset.left : inset.right
+            return {
+                [edge]: clampBetween(pos[edge], near, root.clientWidth - el.offsetWidth - far),
+                top: clampBetween(pos.top, inset.top, root.clientHeight - el.offsetHeight - inset.bottom),
+            }
+        }
+        const place = (pos) => {
+            root.style.setProperty(edgeVar, Math.round(pos[edge]) + 'px')
+            root.style.setProperty(topVar, Math.round(pos.top) + 'px')
+        }
+
+        // Where the user put the box: restored from storage, else read from the
+        // screen once the box is visible. A small window only clamps what is
+        // shown, so enlarging the window again restores the chosen spot.
+        let desired = null
+        try {
+            const saved = JSON.parse(localStorage.getItem('stl-viewer:' + name + '-pos') || 'null')
+            if (saved && Number.isFinite(saved[edge]) && Number.isFinite(saved.top)) desired = { [edge]: saved[edge], top: saved.top }
+        } catch (_) { /* storage unavailable or corrupt */ }
+        const isHidden = () => el.getClientRects().length === 0
+        const keepOnScreen = () => {
+            if (isHidden()) return // measured when it is next shown
+            if (!desired) desired = current()
+            place(clampPos(desired))
+        }
+
+        let drag = null
+        handle.addEventListener('pointerdown', (ev) => {
+            if (ev.button !== 0 || !ev.isPrimary || drag) return // a second finger must not restart the drag
+            drag = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, start: clampPos(desired || current()) }
+            handle.setPointerCapture(ev.pointerId)
+            el.classList.add('dragging')
+            ev.preventDefault()
+        })
+        handle.addEventListener('pointermove', (ev) => {
+            if (!drag || ev.pointerId !== drag.id) return
+            desired = clampPos({
+                [edge]: drag.start[edge] + sign * (ev.clientX - drag.x),
+                top: drag.start.top + (ev.clientY - drag.y),
+            })
+            place(desired)
+        })
+        const endDrag = (ev) => {
+            if (!drag || (ev && ev.pointerId !== drag.id)) return
+            drag = null
+            el.classList.remove('dragging')
+            try { localStorage.setItem('stl-viewer:' + name + '-pos', JSON.stringify(desired)) } catch (_) { /* storage unavailable */ }
+        }
+        handle.addEventListener('pointerup', endDrag)
+        handle.addEventListener('pointercancel', endDrag)
+        handle.addEventListener('lostpointercapture', endDrag)
+        window.addEventListener('resize', keepOnScreen)
+        keepOnScreen() // a saved position may not fit a smaller window
+        return keepOnScreen
+    }
+
+    /**
+     * Wire a toggle button to a `<name>-collapsed` class on <html>. The state is
+     * saved under 'stl-viewer:<name>-collapsed', which the inline script in
+     * index.html reads before first paint.
+     */
+    function wireCollapsible({ name, button, onChange }) {
+        const className = name + '-collapsed'
+        const apply = (collapsed, persist) => {
+            root.classList.toggle(className, collapsed)
+            button.setAttribute('aria-expanded', String(!collapsed))
+            const label = (collapsed ? 'Expand ' : 'Collapse ') + name
+            button.setAttribute('aria-label', label)
+            button.title = label
+            if (onChange) onChange(collapsed)
+            if (persist) {
+                try { localStorage.setItem('stl-viewer:' + className, collapsed ? '1' : '0') } catch (_) { /* storage unavailable */ }
+            }
+        }
+        button.addEventListener('click', () => apply(!root.classList.contains(className), true))
+        apply(root.classList.contains(className), false)
+    }
+
+    const keepToolbarOnScreen = makeMovable({ el: $('toolbar'), handle: $('toolbarHandle'), name: 'toolbar', edge: 'right' })
+
+    // Collapsing or expanding changes the toolbar's size, so keep it on screen.
+    wireCollapsible({ name: 'toolbar', button: $('btnToggleToolbar'), onChange: keepToolbarOnScreen })
+
+    // ------------------------------------------------------------------- help
+    const help = $('help')
+    const helpButton = $('btnHelp')
+    const helpClose = $('btnCloseHelp')
+    const keepHelpOnScreen = makeMovable({ el: help, handle: $('helpHandle'), name: 'help', edge: 'left' })
+
+    function setHelpOpen(open) {
+        help.classList.toggle('hidden', !open)
+        helpButton.setAttribute('aria-expanded', String(open))
+        if (open) {
+            keepHelpOnScreen()
+            helpClose.focus()
+        } else if (help.contains(document.activeElement)) {
+            helpButton.focus()
+        }
+    }
+
+    helpButton.addEventListener('click', () => setHelpOpen(help.classList.contains('hidden')))
+    helpClose.addEventListener('click', () => setHelpOpen(false))
+    document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && !help.classList.contains('hidden')) setHelpOpen(false)
     })
 
     // ------------------------------------------------------------------ start
-    applyFilter()
-    refreshAuth()
-    refreshList()
+    // Show the last uploaded model, if any. There is no default model.
+    loadLastModel()
+        .then((last) => last && viewer.loadSTLBuffer(last.data, last.name))
+        .catch((ex) => console.warn('Could not read the last model stored in this browser:', ex))
+
+    // ------------------------------------------------------------------ debug
+    // Read-only camera state for end-to-end tests. Only present with ?debug in the URL.
+    if (new URLSearchParams(location.search).has('debug')) {
+        const canvas = $('viewerCanvas')
+        window.__stlViewerDebug = Object.freeze({
+            state() {
+                const cam = viewer.camera
+                const rect = canvas.getBoundingClientRect()
+                return JSON.parse(JSON.stringify({
+                    azimuth: cam.azimuth,
+                    elevation: cam.elevation,
+                    distance: cam.distance,
+                    target: cam.target,
+                    eye: cam.eye(),
+                    viewAspect: cam.viewAspect ?? null,
+                    epoch: cam.epoch ?? null,
+                    canvas: { width: canvas.width, height: canvas.height, cssWidth: rect.width, cssHeight: rect.height, dpr: window.devicePixelRatio },
+                    frames: viewer.renderer ? viewer.renderer.frames : 0,
+                    controls: viewer.controls && viewer.controls.debugState ? viewer.controls.debugState() : null,
+                }))
+            },
+            /** World point on the focal plane under a canvas pixel (CSS px). */
+            focalPoint(px, py) {
+                const rect = canvas.getBoundingClientRect()
+                return viewer.camera.focalPlanePoint(px, py, rect.width, rect.height)
+            },
+            /** Canvas CSS pixel [x, y, depth] of a world point. */
+            project(world) {
+                const rect = canvas.getBoundingClientRect()
+                return viewer.camera.worldToScreen(world, rect.width, rect.height)
+            },
+        })
+    }
 
     return viewer
 }

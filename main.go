@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zrecore/3d-viewer-golang/auth"
 	"github.com/zrecore/3d-viewer-golang/server"
 )
 
@@ -27,24 +26,12 @@ func main() {
 }
 
 func run() error {
-	cfg, err := server.LoadConfig(os.Getenv)
-	if err != nil {
-		return err
-	}
-	a, err := auth.New(cfg.Auth)
-	if err != nil {
-		return err
-	}
-	if a.Enabled() {
-		log.Printf("OIDC login enabled (issuer %s)", cfg.Auth.Issuer)
-	} else {
-		log.Printf("OIDC_ISSUER is not set: uploads are disabled")
-	}
+	cfg := server.LoadConfig(os.Getenv)
 	if err := os.MkdirAll(cfg.ModelsDir(), 0o755); err != nil {
 		log.Printf("warning: cannot create models directory %s: %v", cfg.ModelsDir(), err)
 	}
 
-	router, err := server.New(cfg, a)
+	router, err := server.New(cfg)
 	if err != nil {
 		return err
 	}
@@ -52,7 +39,7 @@ func run() error {
 		Addr:              cfg.Addr,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       5 * time.Minute,
+		ReadTimeout:       30 * time.Second, // the server only handles small GET requests
 		IdleTimeout:       2 * time.Minute,
 	}
 
